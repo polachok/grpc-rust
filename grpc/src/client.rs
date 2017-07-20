@@ -6,6 +6,8 @@ use bytes::Bytes;
 use futures;
 use futures::stream::Stream;
 
+use tokio_core::reactor;
+
 use httpbis;
 use httpbis::Service as HttpbisService;
 use httpbis::HttpScheme;
@@ -60,6 +62,28 @@ impl Client {
             Some(conf.http.thread_name.unwrap_or_else(|| "grpc-client-loop".to_owned()));
 
         httpbis::Client::new_plain(host, port, conf.http)
+            .map(|client| {
+                Client {
+                    client: ::std::sync::Arc::new(client),
+                    host: host.to_owned(),
+                    http_scheme: HttpScheme::Http,
+                }
+            })
+            .map_err(Error::from)
+    }
+
+    pub fn new_plain_remote(host: &str, port: u16, conf: ClientConf, remote: reactor::Remote)
+        -> result::Result<Client>
+    {
+        let mut conf = conf;
+        conf.http.thread_name =
+            Some(conf.http.thread_name.unwrap_or_else(|| "grpc-client-loop".to_owned()));
+
+        let mut client = httpbis::ClientBuilder::new_plain();
+        client.conf = conf.http;
+        client.set_addr((host, port))?;
+        client.event_loop = Some(remote);
+        client.build()
             .map(|client| {
                 Client {
                     client: ::std::sync::Arc::new(client),
